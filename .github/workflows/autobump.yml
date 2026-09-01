@@ -1,41 +1,77 @@
-# brew tap-new uses this file to generate an autobump workflow for the new tap
-name: brew bump
+name: Bump on schedule or request
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/autobump.yml
+  workflow_dispatch:
   schedule:
-    # Every day at 16:35 UTC
-    - cron: 35 16 * * *
+    - cron: "23 */3 * * *"
 
-permissions: {}
-
-defaults:
-  run:
-    shell: bash -xeuo pipefail {0}
+permissions:
+  contents: write
 
 jobs:
-  autobump:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+  bump:
+    runs-on: macos-26
+    env:
+      TAP: kingdave100/tap
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Set up Homebrew
-        id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@8f3d1ec8a696b3b9d9a6c3696b6c73033cab69e4 # 2026.08.14.1
+      - uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: true
 
-      - name: Set up git
-        id: git_setup
-        uses: Homebrew/actions/git-user-config@8f3d1ec8a696b3b9d9a6c3696b6c73033cab69e4 # 2026.08.14.1
+      - name: Bump
+        run: |
+          set -euo pipefail
+          brew tap "$TAP"
 
-      - name: Bump formulae
-        env:
-          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_GIT_COMMITTER_NAME: ${{ steps.git_setup.outputs.name }}
-          HOMEBREW_GIT_COMMITTER_EMAIL: ${{ steps.git_setup.outputs.email }}
-          TAP_NAME: ${{ steps.set-up-homebrew.outputs.tap-name }}
-        run: brew bump --no-fork --open-pr --formulae --bump-synced --tap="$TAP_NAME"
+          run_livecheck() {
+            local result
+            for i in 1 2 3; do
+              result=$(brew livecheck "$@" 2>/dev/null) && { echo "$result"; return; }
+              echo "Livecheck attempt $i failed, retrying in 15s..." >&2
+              sleep 15
+            done
+            echo "[]"
+          }
+
+          CASKS=$(run_livecheck --tap "$TAP" --cask --newer-only --json \
+            | jq -r '.[] | "\(.cask) \(.version.latest)"')
+          FORMULAE=$(run_livecheck --tap "$TAP" --newer-only --json \
+            | jq -r '.[] | select(.formula!=null) | "\(.formula) \(.version.latest)"')
+
+          if [[ -z "${CASKS}${FORMULAE}" ]]; then
+            echo "Nothing to bump."
+            exit 0
+          fi
+
+          REPO_PATH="$(brew --repository "$TAP")"
+          cd "$REPO_PATH"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin \
+            "https://x-access-token:${HOMEBREW_GITHUB_API_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          bump() {
+            local type="$1" name="$2" version="$3"
+            echo "Bumping $type $name -> $version"
+            brew "bump-${type}-pr" --write-only --no-browse --version="$version" "$TAP/$name" || return
+            if ! git diff --quiet; then
+              git add -A
+              git commit -m "$name $version"
+            fi
+          }
+
+          while read -r name ver; do
+            [[ -n "$name" ]] && bump cask "$name" "$ver"
+          done <<<"$CASKS"
+
+          while read -r name ver; do
+            [[ -n "$name" ]] && bump formula "$name" "$ver"
+          done <<<"$FORMULAE"
+
+          git fetch origin main --quiet
+          if ! git diff --quiet origin/main..HEAD; then
+            git push origin HEAD:main
+          fi
