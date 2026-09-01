@@ -15,6 +15,9 @@ jobs:
       TAP: kingdave100/tap
       HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Configure GitHub authentication
+        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       - uses: Homebrew/actions/setup-homebrew@main
         with:
           core: true
