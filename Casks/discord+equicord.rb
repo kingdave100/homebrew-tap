@@ -48,6 +48,14 @@ cask "discord+equicord" do
     executable: "#{formula_opt_bin("equilotl-cli")}/equilotl",
     args:       ["-install", "-location", "#{staged_path}/Discord.app"],
   }
+  # Patching rewrites bundled resources and invalidates the vendor signature, so
+  # macOS refuses to launch the patched app ("Discord is damaged and can't be
+  # opened"). An ad-hoc signature makes the bundle self-consistent again; the
+  # signature survives the move into /Applications.
+  installer script: {
+    executable: "/usr/bin/codesign",
+    args:       ["--force", "--deep", "--sign", "-", "#{staged_path}/Discord.app"],
+  }
   installer script: {
     executable: "/usr/bin/python3",
     args:       ["-c", <<~PYTHON],
