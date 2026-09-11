@@ -26,61 +26,98 @@ cask "discord+equicord" do
   depends_on formula: "equilotl-cli"
   depends_on :macos
 
-  # `equilotl` patches the app bundle in place and writes Equicord's data and
-  # Discord's settings into the user's home. Homebrew sandboxes install steps:
-  # they cannot use LaunchServices or Apple Events and cannot reach the user's
-  # home directory. `installer script` is unsandboxed by design, so the vendor
-  # patcher and the settings write run there.
+  app_path = "#{appdir}/Discord.app"
+  equilotl = "#{formula_opt_bin("equilotl-cli")}/equilotl"
+
+  # Homebrew runs install steps in a sandbox whose `$HOME` is a scratch
+  # directory and which denies LaunchServices and Apple Events. `equilotl`
+  # writes Equicord's data under the real home, and the app has to be launched
+  # from the path it is installed to, so the install runs in `installer script`
+  # (unsandboxed). It also places the bundle itself: `installer` artifacts run
+  # before the `app` artifact, and a staged bundle must not be launched.
+  # `uninstall delete:` removes what this installs.
   #
-  # `installer` artifacts run before `app` moves the bundle into /Applications,
-  # and the patch is path independent, so the staged bundle is patched and the
-  # `app` stanza then installs the already-patched app.
-  app "Discord.app"
+  # Everything is one script because Homebrew only sorts artifacts by class, so
+  # separate `installer script` steps have no defined relative order.
+  #
+  # `equilotl` rewrites bundled resources, which invalidates Discord's
+  # signature, and macOS then refuses the bundle with
+  #
+  #   "Discord" is damaged and can't be opened. You should move it to the Trash.
+  #
+  # because a download tracked with provenance whose seal no longer validates
+  # counts as damaged. Gatekeeper assesses an app on first launch, so the
+  # untouched, notarised bundle is launched once before patching; the later
+  # launch of the patched bundle is then allowed. Stripping quarantine alone is
+  # not enough, and ad-hoc signing is worse than useless: it drops the Team
+  # Identifier, and Discord's Krisp module (`IsSignedBy`) dereferences it and
+  # crashes the renderer, leaving the app stuck on its "Starting..." splash.
   installer script: {
-    executable: "/usr/bin/xattr",
-    args:       ["-dr", "com.apple.quarantine", "#{staged_path}/Discord.app"],
-  }
-  installer script: {
-    executable: "#{formula_opt_bin("equilotl-cli")}/equilotl",
-    args:       ["-install-openasar", "-location", "#{staged_path}/Discord.app"],
-  }
-  installer script: {
-    executable: "#{formula_opt_bin("equilotl-cli")}/equilotl",
-    args:       ["-install", "-location", "#{staged_path}/Discord.app"],
-  }
-  # Patching rewrites bundled resources and invalidates the vendor signature, so
-  # macOS refuses to launch the patched app ("Discord is damaged and can't be
-  # opened"). An ad-hoc signature makes the bundle self-consistent again; the
-  # signature survives the move into /Applications.
-  installer script: {
-    executable: "/usr/bin/codesign",
-    args:       ["--force", "--deep", "--sign", "-", "#{staged_path}/Discord.app"],
-  }
-  installer script: {
-    executable: "/usr/bin/python3",
-    args:       ["-c", <<~PYTHON],
+    executable: "/bin/sh",
+    args:       ["-c", <<~SH],
+      set -eu
+
+      app="#{app_path}"
+      equilotl="#{equilotl}"
+
+      # Discord's own updater would replace the patched bundle.
+      /usr/bin/python3 -c '
       import json, os
       path = os.path.expanduser("~/Library/Application Support/discord/settings.json")
-      if os.path.exists(path):
+      try:
           with open(path) as f:
               settings = json.load(f)
-      else:
+      except FileNotFoundError:
           os.makedirs(os.path.dirname(path), exist_ok=True)
           settings = {}
-
       settings["SKIP_HOST_UPDATE"] = True
-
       with open(path, "w") as f:
           json.dump(settings, f, indent=2)
-    PYTHON
+      '
+
+      /usr/bin/pkill -TERM -f "$app/Contents/" 2>/dev/null || true
+
+      /bin/rm -rf "$app"
+      /usr/bin/ditto "#{staged_path}/Discord.app" "$app"
+      /usr/bin/xattr -dr com.apple.quarantine "$app"
+
+      # Best effort: there is no LaunchServices session in CI or over ssh.
+      if /usr/bin/open -gj -a "$app"; then
+        i=0
+        while [ "$i" -lt 30 ]; do
+          /usr/bin/pgrep -f "$app/Contents/MacOS/Discord" >/dev/null 2>&1 && break
+          i=$((i + 1))
+          /bin/sleep 1
+        done
+        /bin/sleep 3
+      fi
+
+      /usr/bin/pkill -TERM -f "$app/Contents/" 2>/dev/null || true
+      i=0
+      while [ "$i" -lt 15 ]; do
+        /usr/bin/pgrep -f "$app/Contents/" >/dev/null 2>&1 || break
+        i=$((i + 1))
+        /bin/sleep 1
+      done
+      /usr/bin/pkill -KILL -f "$app/Contents/" 2>/dev/null || true
+
+      "$equilotl" -install-openasar -location "$app"
+      "$equilotl" -install -location "$app"
+    SH
   }
 
+  # `uninstall delete:` always escalates with sudo; the install above only ever
+  # writes a bundle the user owns, so a plain `rm` is enough.
   uninstall launchctl: "com.discord.discord.ShipIt",
             quit:      [
               "com.hnc.Discord",
               "com.hnc.Discord.helper.Plugin",
               "com.hnc.Discord.helper.Renderer",
-            ]
+            ],
+            script:    {
+              executable: "/bin/rm",
+              args:       ["-rf", app_path],
+            }
 
   zap trash: [
     "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/com.hnc.discord.sfl*",
