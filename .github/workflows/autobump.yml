@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: autobump
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: macos-26
@@ -18,7 +22,7 @@ jobs:
       - name: Configure GitHub authentication
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: Homebrew/actions/setup-homebrew@main
+      - uses: Homebrew/actions/setup-homebrew@f8d4222eb633e65c2a0157383cf80861fc7fae7f # 2026.09.07.1
         with:
           core: true
           cask: true
@@ -48,8 +52,8 @@ jobs:
 
           CASKS=$(run_livecheck --tap "$TAP" --cask --newer-only --json \
             | jq -r '.[] | "\(.cask) \(.version.latest)"')
-          FORMULAE=$(run_livecheck --tap "$TAP" --newer-only --json \
-            | jq -r '.[] | select(.formula!=null) | "\(.formula) \(.version.latest)"')
+          FORMULAE=$(run_livecheck --tap "$TAP" --formula --newer-only --json \
+            | jq -r '.[] | "\(.formula) \(.version.latest)"')
 
           if [[ -z "${CASKS}${FORMULAE}" ]]; then
             echo "Nothing to bump."

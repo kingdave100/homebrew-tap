@@ -23,4 +23,8 @@ class EquilotlCli < Formula
     path = "#{Dir.home}/Library/Application Support/Equicord"
     rm_r(path) if Dir.exist?(path)
   end
+
+  test do
+    assert_match "Equilotl Cli v#{version}", shell_output("#{bin}/equilotl -version")
+  end
 end
