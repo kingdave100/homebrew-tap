@@ -31,8 +31,15 @@ cask "discord+equicord" do
   postflight_steps do
     # Evil hack to bypass Gatekeeper.
     run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "/Applications/Discord.app"]
-    run "/usr/bin/open", args: ["-gj", "-a", "/Applications/Discord.app"]
-    run "/usr/bin/osascript", args: ["-e", 'quit app "Discord"']
+
+    # Launch-once-then-quit so Discord writes its config before patching. Both
+    # steps are best-effort: right after upgrade moves the app into place,
+    # LaunchServices can still resolve the previous bundle and refuse to open it
+    # (kLSNoExecutableErr), and `quit` then fails with -600 because nothing is
+    # running. Neither is fatal - the patch steps below and the settings write
+    # do not need a running app.
+    run "/usr/bin/open", args: ["-gj", "-a", "/Applications/Discord.app"], must_succeed: false
+    run "/usr/bin/osascript", args: ["-e", 'quit app "Discord"'], must_succeed: false
 
     # The step DSL has no `formula_opt_bin` helper; this is the path that helper
     # resolved to for the `equilotl-cli` dependency.
