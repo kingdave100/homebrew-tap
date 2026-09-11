@@ -22,7 +22,7 @@ jobs:
       - name: Configure GitHub authentication
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: Homebrew/actions/setup-homebrew@f8d4222eb633e65c2a0157383cf80861fc7fae7f # 2026.09.07.1
+      - uses: Homebrew/actions/setup-homebrew@main
         with:
           core: true
           cask: true
