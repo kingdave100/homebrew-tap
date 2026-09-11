@@ -29,13 +29,21 @@ jobs:
           brew tap "$TAP"
 
           run_livecheck() {
-            local result
+            local result stderr_file
+            stderr_file=$(mktemp)
             for i in 1 2 3; do
-              result=$(brew livecheck "$@" 2>/dev/null) && { echo "$result"; return; }
+              if result=$(brew livecheck "$@" 2>"$stderr_file"); then
+                rm -f "$stderr_file"
+                echo "$result"
+                return 0
+              fi
               echo "Livecheck attempt $i failed, retrying in 15s..." >&2
               sleep 15
             done
-            echo "[]"
+            echo "Error: brew livecheck failed for: $*" >&2
+            cat "$stderr_file" >&2
+            rm -f "$stderr_file"
+            return 1
           }
 
           CASKS=$(run_livecheck --tap "$TAP" --cask --newer-only --json \
