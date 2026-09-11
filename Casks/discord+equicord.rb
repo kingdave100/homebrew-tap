@@ -26,31 +26,31 @@ cask "discord+equicord" do
   depends_on formula: "equilotl-cli"
   depends_on :macos
 
+  # `equilotl` patches the app bundle in place and writes Equicord's data and
+  # Discord's settings into the user's home. Homebrew sandboxes install steps:
+  # they cannot use LaunchServices or Apple Events and cannot reach the user's
+  # home directory. `installer script` is unsandboxed by design, so the vendor
+  # patcher and the settings write run there.
+  #
+  # `installer` artifacts run before `app` moves the bundle into /Applications,
+  # and the patch is path independent, so the staged bundle is patched and the
+  # `app` stanza then installs the already-patched app.
   app "Discord.app"
-
-  postflight_steps do
-    # Evil hack to bypass Gatekeeper.
-    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "/Applications/Discord.app"]
-
-    # Launch-once-then-quit so Discord writes its config before patching. Both
-    # steps are best-effort: right after upgrade moves the app into place,
-    # LaunchServices can still resolve the previous bundle and refuse to open it
-    # (kLSNoExecutableErr), and `quit` then fails with -600 because nothing is
-    # running. Neither is fatal - the patch steps below and the settings write
-    # do not need a running app.
-    run "/usr/bin/open", args: ["-gj", "-a", "/Applications/Discord.app"], must_succeed: false
-    run "/usr/bin/osascript", args: ["-e", 'quit app "Discord"'], must_succeed: false
-
-    # The step DSL has no `formula_opt_bin` helper; this is the path that helper
-    # resolved to for the `equilotl-cli` dependency.
-    run "{{HOMEBREW_PREFIX}}/opt/equilotl-cli/bin/equilotl",
-        args:           ["-install-openasar", "-location", "/Applications/Discord.app"],
-        network_access: true
-    run "{{HOMEBREW_PREFIX}}/opt/equilotl-cli/bin/equilotl",
-        args:           ["-install", "-location", "/Applications/Discord.app"],
-        network_access: true
-
-    run "/usr/bin/python3", args: ["-c", <<~PYTHON]
+  installer script: {
+    executable: "/usr/bin/xattr",
+    args:       ["-dr", "com.apple.quarantine", "#{staged_path}/Discord.app"],
+  }
+  installer script: {
+    executable: "#{formula_opt_bin("equilotl-cli")}/equilotl",
+    args:       ["-install-openasar", "-location", "#{staged_path}/Discord.app"],
+  }
+  installer script: {
+    executable: "#{formula_opt_bin("equilotl-cli")}/equilotl",
+    args:       ["-install", "-location", "#{staged_path}/Discord.app"],
+  }
+  installer script: {
+    executable: "/usr/bin/python3",
+    args:       ["-c", <<~PYTHON],
       import json, os
       path = os.path.expanduser("~/Library/Application Support/discord/settings.json")
       if os.path.exists(path):
@@ -65,7 +65,7 @@ cask "discord+equicord" do
       with open(path, "w") as f:
           json.dump(settings, f, indent=2)
     PYTHON
-  end
+  }
 
   uninstall launchctl: "com.discord.discord.ShipIt",
             quit:      [
