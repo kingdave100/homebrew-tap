@@ -14,17 +14,11 @@ defaults:
     shell: bash -xeuo pipefail {0}
 
 jobs:
-  test-bot:
-    strategy:
-      matrix:
-        os: [ macos-26 ]
-        include:
-          - os: ubuntu-latest
-            container:
-              image: ghcr.io/homebrew/brew:main
-              options: --privileged
-    runs-on: ${{ matrix.os }}
-    container: ${{ fromJSON(toJSON(matrix.container)) }} # zizmor: ignore[unpinned-images]
+  test-bot-linux:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/homebrew/brew:main # zizmor: ignore[unpinned-images]
+      options: --privileged
     permissions:
       actions: read
       checks: read
@@ -41,8 +35,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
-          key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
-          restore-keys: ${{ matrix.os }}-rubygems-
+          key: ubuntu-latest-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ubuntu-latest-rubygems-
 
       - run: brew test-bot --only-cleanup-before
 
@@ -56,5 +50,43 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: bottles_${{ matrix.os }}
+          name: bottles_ubuntu-latest
+          path: '*.bottle.*'
+
+  # macOS is valuable for full pull-request validation, but duplicating the
+  # syntax-only check on every direct push needlessly consumes macOS minutes.
+  test-bot-macos:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-26
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Homebrew Bundler RubyGems
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+          key: macos-26-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: macos-26-rubygems-
+
+      - run: brew test-bot --only-cleanup-before
+
+      - run: brew test-bot --only-setup
+
+      - run: brew test-bot --only-tap-syntax
+      - run: brew test-bot --only-formulae
+
+      - name: Upload bottles as artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bottles_macos-26
           path: '*.bottle.*'
