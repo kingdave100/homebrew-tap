@@ -3,9 +3,9 @@ name: Bump on schedule or request
 on:
   workflow_dispatch:
   schedule:
-    # One inexpensive preflight per day. The macOS job only runs when an
+    # Two inexpensive preflights per day. The macOS job only runs when an
     # upstream version changes.
-    - cron: "23 6 * * *"
+    - cron: "23 6,18 * * *"
       timezone: "America/New_York"
 
 permissions:
