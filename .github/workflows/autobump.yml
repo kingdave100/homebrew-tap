@@ -3,18 +3,77 @@ name: Bump on schedule or request
 on:
   workflow_dispatch:
   schedule:
-    - cron: "23 */3 * * *"
+    # One inexpensive preflight per day. The macOS job only runs when an
+    # upstream version changes.
+    - cron: "23 6 * * *"
+      timezone: "America/New_York"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: autobump
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-slim
+    timeout-minutes: 2
+    outputs:
+      needs_bump: ${{ steps.versions.outputs.needs_bump }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check upstream versions
+        id: versions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Preserve workflow_dispatch as an unconditional manual run.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          current_equilotl=$(grep -m1 -oE 'Equilotl/releases/download/v[^/]+' \
+            Formula/equilotl-cli.rb | sed 's#.*/v##')
+          github_headers=(-H "Accept: application/vnd.github+json")
+          if [[ -n "$GH_TOKEN" ]]; then
+            github_headers+=(-H "Authorization: Bearer $GH_TOKEN")
+          fi
+          latest_equilotl=$(curl --connect-timeout 10 --max-time 30 -fsSL \
+            "${github_headers[@]}" \
+            https://api.github.com/repos/Equicord/Equilotl/releases/latest \
+            | jq -r '.tag_name | sub("^v"; "")') || latest_equilotl=""
+
+          discord_url=$(curl --connect-timeout 10 --max-time 30 -fsSIL \
+            -o /dev/null -w '%{url_effective}' \
+            'https://discord.com/api/download/stable?platform=osx') || discord_url=""
+          latest_discord=$(sed -nE \
+            's#.*apps/osx/([^/]+)/Discord\.dmg.*#\1#p' <<< "$discord_url")
+
+          if [[ -z "$current_equilotl" || -z "$latest_equilotl" || -z "$latest_discord" ]]; then
+            echo "Could not determine every upstream version; running the authoritative Homebrew check." >&2
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$current_equilotl" != "$latest_equilotl" ]] || \
+               ! grep -Fq "version \"$latest_discord\"" Casks/discord+equicord.rb; then
+            echo "An upstream version changed; running Homebrew autobump."
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Equilotl $current_equilotl and Discord $latest_discord are current."
+            echo "needs_bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
   bump:
+    needs: check
+    if: needs.check.outputs.needs_bump == 'true'
     runs-on: macos-26
+    timeout-minutes: 10
+    permissions:
+      contents: write
     env:
       TAP: kingdave100/tap
       HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,8 +100,10 @@ jobs:
                 echo "$result"
                 return 0
               fi
-              echo "Livecheck attempt $i failed, retrying in 15s..." >&2
-              sleep 15
+              if [[ "$i" -lt 3 ]]; then
+                echo "Livecheck attempt $i failed, retrying in 15s..." >&2
+                sleep 15
+              fi
             done
             echo "Error: brew livecheck failed for: $*" >&2
             cat "$stderr_file" >&2
