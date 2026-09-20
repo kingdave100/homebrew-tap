@@ -22,7 +22,7 @@ jobs:
     outputs:
       needs_bump: ${{ steps.versions.outputs.needs_bump }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Check upstream versions
         id: versions
