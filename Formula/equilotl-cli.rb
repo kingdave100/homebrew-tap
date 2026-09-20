@@ -3,11 +3,11 @@ class EquilotlCli < Formula
   homepage "https://github.com/Equicord/Equilotl"
 
   if Hardware::CPU.arm?
-    url "https://github.com/Equicord/Equilotl/releases/download/v2.2.6/EquilotlCli-darwin-arm64"
-    sha256 "fdd56b173760b6b1e2b548c742cbd587d53c41b1bf39b7fa28e1c90fdcc448f3"
+    url "https://github.com/Equicord/Equilotl/releases/download/v2.2.7/EquilotlCli-arm64"
+    sha256 "19d489f19a2da4e10b0c632d3ff6f234658350ef1c238eec79f98c26fb7cef06"
   else
-    url "https://github.com/Equicord/Equilotl/releases/download/v2.2.6/EquilotlCli-darwin-x64"
-    sha256 "f1efaa5bc71e6e7a20d23ea1239df4769759820e7eedbd70ad91ead6f19c9c9b"
+    url "https://github.com/Equicord/Equilotl/releases/download/v2.2.7/EquilotlCli-x64"
+    sha256 "9f05d83fec37fa7dfca94c160df30cafbbc61498445746f37aaa0ecb78c94025"
   end
 
   livecheck do
