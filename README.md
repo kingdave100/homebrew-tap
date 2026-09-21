@@ -1,18 +1,26 @@
-# Kingdave100 Tap
+# Homebrew tap
 
-## How do I install these formulae?
+Homebrew packages for [Equicord](https://github.com/Equicord) on macOS.
 
-`brew install kingdave100/tap/<formula>`
+| Package | Description |
+| --- | --- |
+| `discord+equicord` | Discord with Equicord and OpenAsar installed. |
+| `equilotl-cli` | Command-line installer for Equicord. Installed automatically with the cask. |
 
-Or `brew tap kingdave100/tap` and then `brew install <formula>`.
+## Install
 
-Or, in a `brew bundle` `Brewfile`:
+To install Discord with Equicord and OpenAsar:
 
-```ruby
-tap "kingdave100/tap"
-brew "<formula>"
+```sh
+brew install --cask kingdave100/tap/discord+equicord
 ```
 
-## Documentation
+The cask conflicts with the standard `discord` cask. If you already have it installed, uninstall it first with `brew uninstall --cask discord`.
 
-`brew help`, `man brew` or check [Homebrew's documentation](https://docs.brew.sh).
+To install only the command-line tool:
+
+```sh
+brew install kingdave100/tap/equilotl-cli
+```
+
+Homebrew documentation: [docs.brew.sh](https://docs.brew.sh).
