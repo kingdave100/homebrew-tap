@@ -132,7 +132,11 @@ jobs:
           bump() {
             local type="$1" name="$2" version="$3"
             echo "Bumping $type $name -> $version"
-            brew "bump-${type}-pr" --write-only --no-browse --version="$version" "$TAP/$name" || return
+            if [[ "$type" == "formula" && "$name" == "equilotl-cli" ]]; then
+              python3 .github/scripts/bump-equilotl.py "$version" || return
+            else
+              brew "bump-${type}-pr" --write-only --no-browse --version="$version" "$TAP/$name" || return
+            fi
             if ! git diff --quiet; then
               git add -A
               git commit -m "$name $version"
