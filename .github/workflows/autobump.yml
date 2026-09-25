@@ -5,8 +5,8 @@ on:
   schedule:
     # Preflight every six hours, including 2 PM. The macOS job only runs
     # when an upstream version changes.
-    - cron: "0 2,8,14,20 * * *"
-      timezone: "America/New_York"
+#    - cron: "0 2,8,14,20 * * *"
+#      timezone: "America/New_York"
 
 permissions:
   contents: read
