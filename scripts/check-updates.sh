@@ -5,20 +5,24 @@ TAP="kingdave100/tap"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-if [[ "$(git branch --show-current)" != "main" ]]
+current_branch="$(git branch --show-current)"
+if [[ "${current_branch}" != "main" ]]
 then
   echo "Run this script from the main branch." >&2
   exit 1
 fi
 
-if [[ -n "$(git status --porcelain)" ]]
+working_tree="$(git status --porcelain)"
+if [[ -n "${working_tree}" ]]
 then
   echo "Working tree is not clean; commit or stash changes before checking updates." >&2
   exit 1
 fi
 
 git fetch origin main --quiet
-if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]
+local_head="$(git rev-parse HEAD)"
+remote_head="$(git rev-parse origin/main)"
+if [[ "${local_head}" != "${remote_head}" ]]
 then
   echo "Local main is not up to date with origin/main. Run 'git pull --ff-only' first." >&2
   exit 1
@@ -87,7 +91,9 @@ do
   [[ -n "${name:-}" ]] && bump formula "${name}" "${version}"
 done <<<"${FORMULAE}"
 
-if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]
+local_head="$(git rev-parse HEAD)"
+remote_head="$(git rev-parse origin/main)"
+if [[ "${local_head}" != "${remote_head}" ]]
 then
   git push origin HEAD:main
   echo "Update(s) pushed to origin/main."
