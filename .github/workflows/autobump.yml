@@ -2,11 +2,14 @@ name: Bump on schedule or request
 
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: Refresh downloads and checksums even when versions are current
+        type: boolean
+        default: false
   schedule:
-    # Preflight every six hours, including 2 PM. The macOS job only runs
-    # when an upstream version changes.
-#    - cron: "0 2,8,14,20 * * *"
-#      timezone: "America/New_York"
+    - cron: "0 15 * * *"
+      timezone: "America/New_York"
 
 permissions:
   contents: read
@@ -16,142 +19,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-slim
-    timeout-minutes: 2
-    outputs:
-      needs_bump: ${{ steps.versions.outputs.needs_bump }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Check upstream versions
-        id: versions
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # Preserve workflow_dispatch as an unconditional manual run.
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          current_equilotl=$(grep -m1 -oE 'Equilotl/releases/download/v[^/]+' \
-            Formula/equilotl-cli.rb | sed 's#.*/v##')
-          github_headers=(-H "Accept: application/vnd.github+json")
-          if [[ -n "$GH_TOKEN" ]]; then
-            github_headers+=(-H "Authorization: Bearer $GH_TOKEN")
-          fi
-          latest_equilotl=$(curl --connect-timeout 10 --max-time 30 -fsSL \
-            "${github_headers[@]}" \
-            https://api.github.com/repos/Equicord/Equilotl/releases/latest \
-            | jq -r '.tag_name | sub("^v"; "")') || latest_equilotl=""
-
-          discord_url=$(curl --connect-timeout 10 --max-time 30 -fsSIL \
-            -o /dev/null -w '%{url_effective}' \
-            'https://discord.com/api/download/stable?platform=osx') || discord_url=""
-          latest_discord=$(sed -nE \
-            's#.*apps/osx/([^/]+)/Discord\.dmg.*#\1#p' <<< "$discord_url")
-
-          if [[ -z "$current_equilotl" || -z "$latest_equilotl" || -z "$latest_discord" ]]; then
-            echo "Could not determine every upstream version; running the authoritative Homebrew check." >&2
-            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$current_equilotl" != "$latest_equilotl" ]] || \
-               ! grep -Fq "version \"$latest_discord\"" Casks/discord+equicord.rb; then
-            echo "An upstream version changed; running Homebrew autobump."
-            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Equilotl $current_equilotl and Discord $latest_discord are current."
-            echo "needs_bump=false" >> "$GITHUB_OUTPUT"
-          fi
-
   bump:
-    needs: check
-    if: needs.check.outputs.needs_bump == 'true'
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
-    env:
-      TAP: kingdave100/tap
-      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Configure GitHub authentication
-        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - uses: Homebrew/actions/setup-homebrew@main
+      - uses: actions/checkout@v7
         with:
-          core: true
-          cask: true
+          ref: main
 
-      - name: Bump
+      - name: Check versions and update packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force || false }}
+        run: python3 .github/scripts/autobump.py
+
+      - name: Commit and push updates
         run: |
           set -euo pipefail
-          brew tap "$TAP"
-
-          run_livecheck() {
-            local result stderr_file
-            stderr_file=$(mktemp)
-            for i in 1 2 3; do
-              if result=$(brew livecheck "$@" 2>"$stderr_file"); then
-                rm -f "$stderr_file"
-                echo "$result"
-                return 0
-              fi
-              if [[ "$i" -lt 3 ]]; then
-                echo "Livecheck attempt $i failed, retrying in 15s..." >&2
-                sleep 15
-              fi
-            done
-            echo "Error: brew livecheck failed for: $*" >&2
-            cat "$stderr_file" >&2
-            rm -f "$stderr_file"
-            return 1
-          }
-
-          CASKS=$(run_livecheck --tap "$TAP" --cask --newer-only --json \
-            | jq -r '.[] | "\(.cask) \(.version.latest)"')
-          FORMULAE=$(run_livecheck --tap "$TAP" --formula --newer-only --json \
-            | jq -r '.[] | "\(.formula) \(.version.latest)"')
-
-          if [[ -z "${CASKS}${FORMULAE}" ]]; then
+          git add -- Formula/equilotl-cli.rb Casks/discord+equicord.rb
+          if git diff --cached --quiet; then
             echo "Nothing to bump."
             exit 0
           fi
-
-          REPO_PATH="$(brew --repository "$TAP")"
-          cd "$REPO_PATH"
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin \
-            "https://x-access-token:${HOMEBREW_GITHUB_API_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-          bump() {
-            local type="$1" name="$2" version="$3"
-            echo "Bumping $type $name -> $version"
-            if [[ "$type" == "formula" && "$name" == "equilotl-cli" ]]; then
-              python3 .github/scripts/bump-equilotl.py "$version" || return
-            else
-              brew "bump-${type}-pr" --write-only --no-browse --version="$version" "$TAP/$name" || return
-            fi
-            if ! git diff --quiet; then
-              git add -A
-              git commit -m "$name $version"
-            fi
-          }
-
-          while read -r name ver; do
-            [[ -n "$name" ]] && bump cask "$name" "$ver"
-          done <<<"$CASKS"
-
-          while read -r name ver; do
-            [[ -n "$name" ]] && bump formula "$name" "$ver"
-          done <<<"$FORMULAE"
-
-          git fetch origin main --quiet
-          if ! git diff --quiet origin/main..HEAD; then
-            git push origin HEAD:main
-          fi
+          git commit -m "Update upstream package versions and checksums"
+          git pull --rebase origin main
+          git push origin HEAD:main

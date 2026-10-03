@@ -5,9 +5,19 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 permissions: {}
+
+concurrency:
+  group: test-bot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
