@@ -45,6 +45,26 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update upstream package versions and checksums"
+          for file in Formula/equilotl-cli.rb Casks/discord+equicord.rb; do
+            if git diff --cached --quiet -- "$file"; then
+              continue
+            fi
+            package="${file##*/}"
+            package="${package%.rb}"
+            case "$package" in
+              equilotl-cli)
+                version=$(sed -nE 's@.*Equilotl/releases/download/v([^/]+)/EquilotlCli-.*@\1@p' "$file" | sort -u)
+                ;;
+              discord+equicord)
+                version=$(awk '/on_monterey :or_newer do/ { modern = 1; next }
+                  modern && $1 == "version" { gsub(/"/, "", $2); print $2; exit }' "$file")
+                ;;
+            esac
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Could not determine version for $package: $version" >&2
+              exit 1
+            fi
+            git commit -m "$package $version" -- "$file"
+          done
           git pull --rebase origin main
           git push origin HEAD:main
