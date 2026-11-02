@@ -85,9 +85,12 @@ def main():
         "--head", "--output", os.devnull, "--write-out", "%{url_effective}",
         "https://discord.com/api/download/stable?platform=osx",
     )
+    # The redirect only reports the version; the DMG is always hashed from the
+    # cask's own URL, since the newer distro path serves a different file.
     match = re.fullmatch(
         r'https://(?:dl\.discordapp\.net|stable\.dl2?\.discordapp\.net)'
-        r'/apps/osx/(\d+\.\d+\.\d+)/Discord\.dmg', discord_url
+        r'/(?:apps/osx|distro/app/stable/osx/universal)'
+        r'/(\d+\.\d+\.\d+)/Discord\.dmg', discord_url
     )
     if not match:
         raise ValueError(f"Unrecognized Discord download URL: {discord_url!r}")

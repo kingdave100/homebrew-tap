@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -31,8 +32,13 @@ class AutobumpTests(unittest.TestCase):
         self.cask = self.root / "Casks/discord+equicord.rb"
         self.original_formula = self.formula.read_text()
         self.original_cask = self.cask.read_text()
-        self.equilotl = "2.3.0"
-        self.discord = "0.0.414"
+        # Start from whatever the tap currently ships so autobumps don't break these.
+        self.equilotl = re.search(
+            r"releases/download/v([^/]+)/", self.original_formula
+        )[1]
+        block = updater.DISCORD_BLOCK.search(self.original_cask)
+        self.discord, self.discord_sha = block[2], block[4]
+        self.discord_url = "https://stable.dl2.discordapp.net/distro/app/stable/osx/universal/{}/Discord.dmg"
         self.downloads = []
         self.force = False
 
@@ -40,7 +46,7 @@ class AutobumpTests(unittest.TestCase):
         if args[-1].endswith("/releases/latest"):
             return json.dumps({"tag_name": "v" + self.equilotl})
         if "--head" in args:
-            return f"https://dl.discordapp.net/apps/osx/{self.discord}/Discord.dmg"
+            return self.discord_url.format(self.discord)
         self.downloads.append(args[-1])
         Path(args[args.index("--output") + 1]).write_bytes(b"discord fixture")
         return ""
@@ -57,16 +63,29 @@ class AutobumpTests(unittest.TestCase):
         self.assertEqual(self.formula.read_text(), self.original_formula)
         self.assertEqual(self.cask.read_text(), self.original_cask)
 
+    def bump_version(self, version):
+        major, minor, patch = updater.version_key(version)
+        return f"{major}.{minor}.{patch + 1}"
+
     def test_discord_update_preserves_legacy_and_rest_of_cask(self):
-        self.discord = "0.0.415"
-        self.execute()
-        digest = hashlib.sha256(b"discord fixture").hexdigest()
-        expected = self.original_cask.replace(
-            'version "0.0.414"', 'version "0.0.415"'
-        ).replace("f9b76e7de1928de5aece6e9c51d2e0f2f8cfd9db590bb50dd324f476783f24fe", digest)
-        self.assertEqual(self.cask.read_text(), expected)
-        self.assertEqual(self.formula.read_text(), self.original_formula)
-        self.assertEqual(len(self.downloads), 1)
+        for url in (self.discord_url,
+                    "https://dl.discordapp.net/apps/osx/{}/Discord.dmg"):
+            with self.subTest(url=url):
+                self.cask.write_text(self.original_cask)
+                self.downloads.clear()
+                self.discord_url = url
+                current = updater.DISCORD_BLOCK.search(self.original_cask)[2]
+                self.discord = self.bump_version(current)
+                self.execute()
+                digest = hashlib.sha256(b"discord fixture").hexdigest()
+                expected = self.original_cask.replace(
+                    f'version "{current}"', f'version "{self.discord}"'
+                ).replace(self.discord_sha, digest)
+                self.assertEqual(self.cask.read_text(), expected)
+                self.assertEqual(self.formula.read_text(), self.original_formula)
+                self.assertEqual(self.downloads, [
+                    f"https://dl.discordapp.net/apps/osx/{self.discord}/Discord.dmg"
+                ])
 
     def test_force_refreshes_both_architectures_and_discord(self):
         self.force = True
@@ -91,15 +110,15 @@ class AutobumpTests(unittest.TestCase):
         self.assertEqual(self.cask.read_text(), self.original_cask)
 
     def test_equilotl_update_changes_both_urls_and_checksums(self):
-        self.equilotl = "2.4.0"
+        old, self.equilotl = self.equilotl, self.bump_version(self.equilotl)
         def download(args, **kwargs):
             Path(args[args.index("--output") + 1]).write_bytes(args[-1].encode())
         with patch.object(subprocess, "run", side_effect=download):
             self.execute()
         updated = self.formula.read_text()
-        self.assertNotIn("/v2.3.0/", updated)
+        self.assertNotIn(f"/v{old}/", updated)
         for arch in ("arm64", "x64"):
-            url = f"https://github.com/Equicord/Equilotl/releases/download/v2.4.0/EquilotlCli-{arch}"
+            url = f"https://github.com/Equicord/Equilotl/releases/download/v{self.equilotl}/EquilotlCli-{arch}"
             self.assertIn(url, updated)
             self.assertIn(hashlib.sha256(url.encode()).hexdigest(), updated)
         self.assertEqual(self.cask.read_text(), self.original_cask)
@@ -107,7 +126,7 @@ class AutobumpTests(unittest.TestCase):
     def test_failed_discord_download_preserves_cask(self):
         with patch.object(updater, "curl", side_effect=subprocess.CalledProcessError(22, "curl")):
             with self.assertRaises(subprocess.CalledProcessError):
-                updater.bump_discord("0.0.415", self.cask)
+                updater.bump_discord(self.bump_version(self.discord), self.cask)
         self.assertEqual(self.cask.read_text(), self.original_cask)
 
     def test_failed_second_equilotl_download_preserves_formula(self):
@@ -118,11 +137,12 @@ class AutobumpTests(unittest.TestCase):
             Path(args[args.index("--output") + 1]).write_bytes(b"arm fixture")
         with patch.object(subprocess, "run", side_effect=download):
             with self.assertRaises(subprocess.CalledProcessError):
-                bump("2.4.0", self.formula)
+                bump(self.bump_version(self.equilotl), self.formula)
         self.assertEqual(self.formula.read_text(), self.original_formula)
 
     def test_invalid_and_older_versions_are_rejected(self):
-        for version in ("garbage", "0.0.413"):
+        major, minor, patch = updater.version_key(self.discord)
+        for version in ("garbage", f"{major}.{minor}.{patch - 1}"):
             with self.subTest(version=version):
                 self.discord = version
                 with self.assertRaises(ValueError):
@@ -134,7 +154,7 @@ class AutobumpTests(unittest.TestCase):
         self.cask.write_text(self.original_cask.replace("on_monterey", "on_ventura"))
         original = self.cask.read_text()
         with self.assertRaises(ValueError):
-            updater.bump_discord("0.0.415", self.cask)
+            updater.bump_discord(self.bump_version(self.discord), self.cask)
         self.assertEqual(self.cask.read_text(), original)
         self.assertEqual(self.downloads, [])
 
