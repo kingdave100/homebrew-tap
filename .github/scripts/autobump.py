@@ -18,10 +18,12 @@ DISCORD_BLOCK = re.compile(
 
 
 def curl(*args):
-    # Bound requests and retry transient HTTP/network errors on the Linux runner.
+    # Bound requests and ride out transient upstream errors (e.g. GitHub's
+    # release CDN briefly returning 504s right after a release is published).
     return subprocess.check_output(
         ["curl", "--fail", "--location", "--silent", "--show-error",
-         "--retry", "2", "--retry-all-errors", "--retry-delay", "2",
+         "--retry", "6", "--retry-all-errors", "--retry-delay", "10",
+         "--retry-max-time", "180",
          "--connect-timeout", "10", "--max-time", "120", *args],
         text=True,
     ).strip()

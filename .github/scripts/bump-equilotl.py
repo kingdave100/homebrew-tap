@@ -31,7 +31,11 @@ def bump(version, formula):
             asset = Path(directory) / arch
             subprocess.run(
                 ["curl", "--fail", "--location", "--silent", "--show-error",
-                 "--retry", "3", "--connect-timeout", "10", "--max-time", "120",
+                 # Retry 5xx/network errors for up to ~3 minutes; GitHub's
+                 # release CDN can 504 for a while after a new release.
+                 "--retry", "6", "--retry-all-errors", "--retry-delay", "10",
+                 "--retry-max-time", "180",
+                 "--connect-timeout", "10", "--max-time", "120",
                  "--output", str(asset), url],
                 check=True,
             )
