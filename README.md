@@ -4,12 +4,12 @@ Homebrew packages for [Equicord](https://github.com/Equicord) on macOS.
 
 | Package | Description |
 | --- | --- |
-| `discord+equicord` | Discord with Equicord and OpenAsar installed. |
+| `discord+equicord` | Discord with Equicord installed. |
 | `equilotl-cli` | Command-line installer for Equicord. Installed automatically with the cask. |
 
 ## Install
 
-To install Discord with Equicord and OpenAsar:
+To install Discord with Equicord:
 
 ```sh
 brew install --cask kingdave100/tap/discord+equicord

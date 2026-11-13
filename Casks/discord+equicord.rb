@@ -22,7 +22,7 @@ cask "discord+equicord" do
   end
 
   name "Discord + Equicord"
-  desc "Discord with Equicord and OpenAsar preinstalled"
+  desc "Discord with Equicord preinstalled"
   homepage "https://discord.com/"
 
   conflicts_with cask: "discord"
@@ -104,7 +104,9 @@ cask "discord+equicord" do
       done
       /usr/bin/pkill -KILL -f "$app/Contents/" 2>/dev/null || true
 
-      "$equilotl" -install-openasar -location "$app"
+      # OpenAsar is deliberately not installed. From 0.0.422 Discord serves no
+      # modules over the legacy API OpenAsar's updater uses on macOS, so it
+      # loops forever on the "Installing update" splash.
       "$equilotl" -install -location "$app"
     SH
   }
