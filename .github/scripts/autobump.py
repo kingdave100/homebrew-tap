@@ -50,7 +50,8 @@ def bump_discord(version, cask):
     with tempfile.TemporaryDirectory() as directory:
         asset = Path(directory) / "Discord.dmg"
         curl("--output", str(asset),
-             f"https://dl.discordapp.net/apps/osx/{version}/Discord.dmg")
+             f"https://stable.dl2.discordapp.net/distro/app/stable/osx"
+             f"/universal/{version}/Discord.dmg")
         # Stream the large DMG rather than keeping it in memory.
         digest = hashlib.sha256()
         with asset.open("rb") as download:
@@ -88,7 +89,8 @@ def main():
         "https://discord.com/api/download/stable?platform=osx",
     )
     # The redirect only reports the version; the DMG is always hashed from the
-    # cask's own URL, since the newer distro path serves a different file.
+    # cask's own distro URL. Discord stopped publishing the older apps/osx
+    # path as of 0.0.422, and it served a different file anyway.
     match = re.fullmatch(
         r'https://(?:dl\.discordapp\.net|stable\.dl2?\.discordapp\.net)'
         r'/(?:apps/osx|distro/app/stable/osx/universal)'
