@@ -38,7 +38,8 @@ jobs:
       - name: Commit and push updates
         run: |
           set -euo pipefail
-          git add -- Formula/equilotl-cli.rb Casks/discord+equicord.rb
+          manifest="Support/discord+equicord/pinned_update.json"
+          git add -- Formula/equilotl-cli.rb Casks/discord+equicord.rb "$manifest"
           if git diff --cached --quiet; then
             echo "Nothing to bump."
             exit 0
@@ -46,7 +47,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for file in Formula/equilotl-cli.rb Casks/discord+equicord.rb; do
-            if git diff --cached --quiet -- "$file"; then
+            files=("$file")
+            if [[ "$file" == Casks/discord+equicord.rb ]]; then
+              files+=("$manifest")
+            fi
+            if git diff --cached --quiet -- "${files[@]}"; then
               continue
             fi
             package="${file##*/}"
@@ -64,7 +69,7 @@ jobs:
               echo "Could not determine version for $package: $version" >&2
               exit 1
             fi
-            git commit -m "$package $version" -- "$file"
+            git commit -m "$package $version" -- "${files[@]}"
           done
           git pull --rebase origin main
           git push origin HEAD:main

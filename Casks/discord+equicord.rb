@@ -31,6 +31,48 @@ cask "discord+equicord" do
 
   app_path = "#{appdir}/Discord.app"
   equilotl = "#{formula_opt_bin("equilotl-cli")}/equilotl"
+  manifest = "#{HOMEBREW_LIBRARY}/Taps/kingdave100/homebrew-tap/Support/discord+equicord/pinned_update.json"
+
+  # Discord's own updater would replace the patched bundle. Its settings pin it
+  # to the update manifest the tap saved for this exact version; a manifest for
+  # any other version is ignored and the pin removed, because Discord refuses
+  # to start when the setting is on and `pinned_update.json` is unusable.
+  # `SKIP_HOST_UPDATE` does the same job for the legacy Big Sur release, whose
+  # older updater has no pinned manifest. Uninstalling removes all three.
+  pin = <<~PYTHON
+    import json, os, shutil, sys
+    version, manifest = sys.argv[1], sys.argv[2]
+    data = os.path.expanduser("~/Library/Application Support/discord")
+    path = os.path.join(data, "settings.json")
+    pinned = os.path.join(data, "pinned_update.json")
+    try:
+        with open(path) as f:
+            settings = json.load(f)
+    except FileNotFoundError:
+        if not version:
+            sys.exit()
+        os.makedirs(data, exist_ok=True)
+        settings = {}
+    try:
+        with open(manifest) as f:
+            host = json.load(f)["full"]["host_version"]
+        matches = bool(version) and ".".join(map(str, host)) == version
+    except (OSError, ValueError, KeyError, TypeError):
+        matches = False
+    if matches:
+        shutil.copyfile(manifest, pinned)
+        settings["USE_PINNED_UPDATE_MANIFEST"] = True
+    else:
+        settings.pop("USE_PINNED_UPDATE_MANIFEST", None)
+    if version:
+        settings["SKIP_HOST_UPDATE"] = True
+    else:
+        settings.pop("SKIP_HOST_UPDATE", None)
+    with open(path, "w") as f:
+        json.dump(settings, f, indent=2)
+    if not matches and os.path.exists(pinned):
+        os.remove(pinned)
+  PYTHON
 
   # Homebrew runs install steps in a sandbox whose `$HOME` is a scratch
   # directory and which denies LaunchServices and Apple Events. `equilotl`
@@ -57,26 +99,13 @@ cask "discord+equicord" do
   # crashes the renderer, leaving the app stuck on its "Starting..." splash.
   installer script: {
     executable: "/bin/sh",
-    args:       ["-c", <<~SH],
+    args:       ["-c", <<~SH, "sh", pin],
       set -eu
 
       app="#{app_path}"
       equilotl="#{equilotl}"
 
-      # Discord's own updater would replace the patched bundle.
-      /usr/bin/python3 -c '
-      import json, os
-      path = os.path.expanduser("~/Library/Application Support/discord/settings.json")
-      try:
-          with open(path) as f:
-              settings = json.load(f)
-      except FileNotFoundError:
-          os.makedirs(os.path.dirname(path), exist_ok=True)
-          settings = {}
-      settings["SKIP_HOST_UPDATE"] = True
-      with open(path, "w") as f:
-          json.dump(settings, f, indent=2)
-      '
+      /usr/bin/python3 -c "$1" "#{version}" "#{manifest}"
 
       /usr/bin/pkill -TERM -f "$app/Contents/" 2>/dev/null || true
 
@@ -108,6 +137,9 @@ cask "discord+equicord" do
       # modules over the legacy API OpenAsar's updater uses on macOS, so it
       # loops forever on the "Installing update" splash.
       "$equilotl" -install -location "$app"
+
+      # An upgrade quits Discord, so bring it back. Best effort, as above.
+      /usr/bin/open -g -a "$app" || true
     SH
   }
 
@@ -120,8 +152,11 @@ cask "discord+equicord" do
               "com.hnc.Discord.helper.Renderer",
             ],
             script:    {
-              executable: "/bin/rm",
-              args:       ["-rf", app_path],
+              executable: "/bin/sh",
+              args:       ["-c", <<~SH, "sh", pin],
+                /bin/rm -rf "#{app_path}"
+                /usr/bin/python3 -c "$1" "" "" || true
+              SH
             }
 
   zap trash: [

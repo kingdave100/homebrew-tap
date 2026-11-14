@@ -24,7 +24,7 @@ class AutobumpTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for file in ("Formula/equilotl-cli.rb", "Casks/discord+equicord.rb",
-                     ".github/scripts/bump-equilotl.py"):
+                     ".github/scripts/bump-equilotl.py", updater.MANIFEST):
             target = self.root / file
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / file, target)
@@ -32,6 +32,9 @@ class AutobumpTests(unittest.TestCase):
         self.cask = self.root / "Casks/discord+equicord.rb"
         self.original_formula = self.formula.read_text()
         self.original_cask = self.cask.read_text()
+        self.manifest = self.root / updater.MANIFEST
+        self.original_manifest = self.manifest.read_text()
+        self.manifest_version = None
         # Start from whatever the tap currently ships so autobumps don't break these.
         self.equilotl = re.search(
             r"releases/download/v([^/]+)/", self.original_formula
@@ -47,6 +50,11 @@ class AutobumpTests(unittest.TestCase):
             return json.dumps({"tag_name": "v" + self.equilotl})
         if "--head" in args:
             return self.discord_url.format(self.discord)
+        if args[-1] == updater.MANIFEST_URL:
+            version = self.manifest_version or self.discord
+            return json.dumps(
+                {"full": {"host_version": list(updater.version_key(version))}}
+            )
         self.downloads.append(args[-1])
         Path(args[args.index("--output") + 1]).write_bytes(b"discord fixture")
         return ""
@@ -84,8 +92,20 @@ class AutobumpTests(unittest.TestCase):
                 self.assertEqual(self.cask.read_text(), expected)
                 self.assertEqual(self.formula.read_text(), self.original_formula)
                 self.assertEqual(self.downloads, [
-                    f"https://dl.discordapp.net/apps/osx/{self.discord}/Discord.dmg"
+                    "https://stable.dl2.discordapp.net/distro/app/stable/osx"
+                    f"/universal/{self.discord}/Discord.dmg"
                 ])
+                host = json.loads(self.manifest.read_text())["full"]["host_version"]
+                self.assertEqual(host, list(updater.version_key(self.discord)))
+
+    def test_manifest_for_another_version_preserves_cask_and_manifest(self):
+        self.manifest_version = self.discord
+        self.discord = self.bump_version(self.discord)
+        with self.assertRaises(ValueError):
+            self.execute()
+        self.assertEqual(self.downloads, [])
+        self.assertEqual(self.cask.read_text(), self.original_cask)
+        self.assertEqual(self.manifest.read_text(), self.original_manifest)
 
     def test_force_refreshes_both_architectures_and_discord(self):
         self.force = True
@@ -128,6 +148,7 @@ class AutobumpTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 updater.bump_discord(self.bump_version(self.discord), self.cask)
         self.assertEqual(self.cask.read_text(), self.original_cask)
+        self.assertEqual(self.manifest.read_text(), self.original_manifest)
 
     def test_failed_second_equilotl_download_preserves_formula(self):
         bump = __import__("runpy").run_path(str(SCRIPTS / "bump-equilotl.py"))["bump"]

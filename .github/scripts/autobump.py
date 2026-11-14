@@ -11,6 +11,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = "Support/discord+equicord/pinned_update.json"
+MANIFEST_URL = ("https://updates.discord.com/distributions/app/manifests/latest"
+                "?channel=stable&platform=osx&arch=arm64")
 DISCORD_BLOCK = re.compile(
     r'(  on_monterey :or_newer do\n    version ")([^"\n]+)'
     r'("\n    sha256 ")([0-9a-f]{64})(")'
@@ -47,6 +50,13 @@ def bump_discord(version, cask):
     original = cask.read_text()
     if len(DISCORD_BLOCK.findall(original)) != 1:
         raise ValueError("Expected one modern Discord version/checksum block")
+    # The cask pins Discord's updater to this manifest, so it must describe
+    # the version being packaged. Discord only serves the latest one, and it
+    # is the same for both architectures.
+    manifest = curl(MANIFEST_URL)
+    host = json.loads(manifest)["full"]["host_version"]
+    if ".".join(map(str, host)) != version:
+        raise ValueError(f"Update manifest is for {host}, not {version}")
     with tempfile.TemporaryDirectory() as directory:
         asset = Path(directory) / "Discord.dmg"
         curl("--output", str(asset),
@@ -62,6 +72,9 @@ def bump_discord(version, cask):
     )
     # Preserve the legacy Big Sur release and every other part of the cask.
     cask.write_text(updated)
+    pinned = cask.parents[1] / MANIFEST
+    pinned.parent.mkdir(parents=True, exist_ok=True)
+    pinned.write_text(manifest + "\n")
 
 
 def main():
