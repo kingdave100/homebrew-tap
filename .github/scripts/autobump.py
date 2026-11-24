@@ -81,11 +81,11 @@ def main():
     formula = ROOT / "Formula/equilotl-cli.rb"
     cask = ROOT / "Casks/discord+equicord.rb"
     equilotl_versions = re.findall(
-        r'Equilotl/releases/download/v([^/]+)/EquilotlCli-(?:arm64|x64)',
+        r'Equilotl/releases/download/v([^/]+)/EquilotlCli-universal',
         formula.read_text(),
     )
-    if len(equilotl_versions) != 2 or len(set(equilotl_versions)) != 1:
-        raise ValueError("Expected matching Equilotl versions for both architectures")
+    if len(equilotl_versions) != 1:
+        raise ValueError("Expected one Equilotl URL in the formula")
     blocks = list(DISCORD_BLOCK.finditer(cask.read_text()))
     if len(blocks) != 1:
         raise ValueError("Expected one modern Discord version/checksum block")
