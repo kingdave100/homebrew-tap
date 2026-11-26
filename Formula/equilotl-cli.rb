@@ -2,8 +2,8 @@ class EquilotlCli < Formula
   desc "Cross platform CLI app for installing Equicord"
   homepage "https://github.com/Equicord/Equilotl"
 
-  url "https://github.com/Equicord/Equilotl/releases/download/v2.3.2/EquilotlCli-universal"
-  sha256 "18917ddc25b0f4803ca05ec66f2ca8c2abdcf9884fbb036ac649e4b2b340a2d8"
+  url "https://github.com/Equicord/Equilotl/releases/download/v2.4.0/EquilotlCli-universal"
+  sha256 "43ccd7aa2106b9c1eb3b9e25e180601aca5914661da9131d097c6149c8a18a0d"
 
   livecheck do
     url :stable
